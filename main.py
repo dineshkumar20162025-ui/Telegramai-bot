@@ -1,50 +1,50 @@
 import os
-import nest_asyncio
-nest_asyncio.apply()
-
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-from googletrans import Translator
 
-TOKEN = os.getenv("BOT_TOKEN")
-translator = Translator()
+BOT_TOKEN = "YOUR_BOT_TOKEN"
 
+# START
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 AI Bot is Live!")
+    await update.message.reply_text(
+        "Send a video and choose resolution:\n/480p /720p /1080p"
+    )
 
-async def save_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.document:
-        file = await update.message.document.get_file()
-        os.makedirs("files", exist_ok=True)
-        file_path = f"files/{update.message.document.file_name}"
-        await file.download_to_drive(file_path)
-        await update.message.reply_text("✅ File saved!")
+# SAVE VIDEO
+async def save_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    file = await update.message.video.get_file()
+    file_path = f"input.mp4"
+    await file.download_to_drive(file_path)
 
-def search_movie(name):
-    for file in os.listdir("files"):
-        if name.lower() in file.lower():
-            return file
-    return None
+    context.user_data["video"] = file_path
+    await update.message.reply_text("✅ Video saved. Now choose resolution.")
 
-async def send_movie(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    name = " ".join(context.args)
-    file = search_movie(name)
+# CHANGE RESOLUTION
+def change_resolution(input_file, output_file, res):
+    os.system(f"ffmpeg -i {input_file} -vf scale=-2:{res} {output_file}")
 
-    if file:
-        await update.message.reply_document(open(f"files/{file}", "rb"))
-    else:
-        await update.message.reply_text("❌ Not found")
+# PROCESS COMMAND
+async def process(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if "video" not in context.user_data:
+        await update.message.reply_text("❌ Send video first")
+        return
 
-async def translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = " ".join(context.args)
-    translated = translator.translate(text, src='hi', dest='ta')
-    await update.message.reply_text("🌐 Tamil:\n" + translated.text)
+    res = update.message.text.replace("/", "")
+    input_file = context.user_data["video"]
+    output_file = f"output_{res}.mp4"
 
-app = ApplicationBuilder().token(TOKEN).build()
+    await update.message.reply_text("⏳ Processing...")
+
+    change_resolution(input_file, output_file, res)
+
+    with open(output_file, "rb") as vid:
+        await update.message.reply_video(video=vid)
+
+# MAIN
+app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("search", send_movie))
-app.add_handler(CommandHandler("translate", translate))
-app.add_handler(MessageHandler(filters.Document.ALL, save_file))
+app.add_handler(CommandHandler(["480p", "720p", "1080p"], process))
+app.add_handler(MessageHandler(filters.VIDEO, save_video))
 
 app.run_polling()
